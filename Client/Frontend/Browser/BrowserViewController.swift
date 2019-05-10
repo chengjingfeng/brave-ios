@@ -2976,7 +2976,7 @@ class DeferredCountable<T> {
     }
     
     func fill(_ value: T) {
-        await.fill(value)
+        await.fillIfUnfilled(value)
     }
     
     var isEmpty: Bool {
