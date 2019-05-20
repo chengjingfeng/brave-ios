@@ -21,7 +21,7 @@ let LatestAppVersionProfileKey = "latestAppVersion"
 private let InitialPingSentKey = "initialPingSent"
 
 class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestoration {
-    public static func viewController(withRestorationIdentifierPath identifierComponents: [Any], coder: NSCoder) -> UIViewController? {
+    public static func viewController(withRestorationIdentifierPath identifierComponents: [String], coder: NSCoder) -> UIViewController? {
         return nil
     }
 
@@ -39,8 +39,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
     var receivedURLs: [URL]?
     
     var authenticator: AppAuthenticator?
+    
+    /// Object used to handle server pings
+    let dau = DAU()
 
-    @discardableResult func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
+    @discardableResult func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         //
         // Determine if the application cleanly exited last time it was used. We default to true in
         // case we have never done this before. Then check if the "ApplicationCleanlyBackgrounded" user
@@ -58,6 +61,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         self.window!.backgroundColor = UIColor.Photon.White100
 
         AdBlockStats.shared.startLoading()
+        
         HttpsEverywhereStats.shared.startLoading()
         
         // Passcode checking, must happen on immediate launch
@@ -101,7 +105,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
 
         let profile = getProfile(application)
         let profilePrefix = profile.prefs.getBranchPrefix()
-        Preferences.migratePreferences(keyPrefix: profilePrefix)
+        Migration.launchMigrations(keyPrefix: profilePrefix)
 
         if !DebugSettingsBundleOptions.disableLocalWebServer {
             // Set up a web server that serves us static content. Do this early so that it is ready when the UI is presented.
@@ -183,7 +187,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         return p
     }
 
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         var shouldPerformAdditionalDelegateHandling = true
 
@@ -205,7 +209,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         }
 
         // If a shortcut was launched, display its information and take the appropriate action
-        if let shortcutItem = launchOptions?[UIApplicationLaunchOptionsKey.shortcutItem] as? UIApplicationShortcutItem {
+        if let shortcutItem = launchOptions?[UIApplication.LaunchOptionsKey.shortcutItem] as? UIApplicationShortcutItem {
 
             QuickActions.sharedInstance.launchedShortcutItem = shortcutItem
             // This will block "performActionForShortcutItem:completionHandler" from being called.
@@ -224,23 +228,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
             FavoritesHelper.addDefaultFavorites()
             profile?.searchEngines.setupDefaultRegionalSearchEngines()
         }
-        
         if let urp = UserReferralProgram.shared {
             if isFirstLaunch {
                 urp.referralLookup { url in
-                    guard let url = url else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: {
-                        try? self.browserViewController.openURLInNewTab(url.asURL(), isPrivileged: false)
-                    })
+                    guard let url = url?.asURL else { return }
+                    self.browserViewController.openReferralLink(url: url)
                 }
             } else {
-                urp.getCustomHeaders()
                 urp.pingIfEnoughTimePassed()
             }
         } else {
             log.error("Failed to initialize user referral program")
             UrpLog.log("Failed to initialize user referral program")
         }
+        
+        AdblockResourceDownloader.shared.regionalAdblockResourcesSetup()
 
         UINavigationBar.appearance().tintColor = BraveUX.BraveOrange
       
@@ -252,14 +254,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         return shouldPerformAdditionalDelegateHandling
     }
 
-    func application(_ application: UIApplication, open url: URL, options: [UIApplicationOpenURLOptionsKey: Any] = [:]) -> Bool {
+    func application(_ application: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         guard let routerpath = NavigationPath(url: url) else {
             return false
         }
-
-        DispatchQueue.main.async {
-            NavigationPath.handle(nav: routerpath, with: self.browserViewController)
-        }
+        self.browserViewController.handleNavigationPath(path: routerpath)
         return true
     }
 
@@ -295,7 +294,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         
         // We try to send DAU ping each time the app goes to foreground to work around network edge cases
         // (offline, bad connection etc.)
-        DAU().sendPingToServer()
+        dau.sendPingToServer()
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
@@ -309,7 +308,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
       
         // BRAVE TODO: Decide whether or not we want to use this for our own sync down the road
 
-        var taskId: UIBackgroundTaskIdentifier = 0
+        var taskId: UIBackgroundTaskIdentifier = UIBackgroundTaskIdentifier(rawValue: 0)
         taskId = application.beginBackgroundTask (expirationHandler: {
             print("Running out of background time, but we have a profile shutdown pending.")
             self.shutdownProfileWhenNotActive(application)
@@ -430,7 +429,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         }
     }
 
-    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([Any]?) -> Void) -> Bool {
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
 
         // If the `NSUserActivity` has a `webpageURL`, it is either a deep link or an old history item
         // reached via a "Spotlight" search before we began indexing visited pages via CoreSpotlight.
@@ -472,7 +471,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
 
 // MARK: - Root View Controller Animations
 extension AppDelegate: UINavigationControllerDelegate {
-    func navigationController(_ navigationController: UINavigationController, animationControllerFor operation: UINavigationControllerOperation, from fromVC: UIViewController, to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+    func navigationController(_ navigationController: UINavigationController, animationControllerFor operation: UINavigationController.Operation, from fromVC: UIViewController, to toVC: UIViewController) -> UIViewControllerAnimatedTransitioning? {
         switch operation {
         case .push:
             return BrowserToTrayAnimator()

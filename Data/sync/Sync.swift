@@ -9,7 +9,7 @@ import SwiftKeychainWrapper
 import SwiftyJSON
 import JavaScriptCore
 
-private let log = Logger.browserLogger
+private let log = Logger.braveSyncLogger
 
 /*
  module.exports.categories = {
@@ -24,8 +24,6 @@ private let log = Logger.browserLogger
  DELETE: 2
  }
  */
-
-public let NotificationSyncReady = "NotificationSyncReady"
 
 // TODO: Make capitals - pluralize - call 'categories' not 'type'
 public enum SyncRecordType: String {
@@ -71,6 +69,11 @@ enum SyncActions: Int {
 }
 
 public class Sync: JSInjector {
+    
+    public struct Notifications {
+        public static let syncReady = Notification.Name(rawValue: "NotificationSyncReady")
+        public static let didLeaveSyncGroup = Notification.Name(rawValue: "NotificationLeftSyncGroup")
+    }
     
     public static let SeedByteLength = 32
     /// Number of records that is considered a fetch limit as opposed to full data set
@@ -157,9 +160,38 @@ public class Sync: JSInjector {
         initializeSync()
     }
     
-    public func leaveSyncGroup() {
-        // No, `leaving` logic should be here, any related logic should be in `syncSeed` setter
+    public func leaveSyncGroup(sendToSync: Bool = true) {
+        leaveSyncGroupInternal(sendToSync: sendToSync)
+    }
+    
+    func leaveSyncGroupInternal(sendToSync: Bool, context: WriteContext = .new) {
         syncSeed = nil
+        
+        DataController.perform(context: context) { context in
+            // Leaving sync group can be triggered either on own device, or remotely, if another device in the sync chain
+            // will remove this device. In the second case we don't want to send deleted device sync record because it
+            // was already deleted and can cause an infinite loop.
+            if let device = Device.currentDevice(context: context), sendToSync {
+                self.sendSyncRecords(action: .delete, records: [device], context: context)
+            }
+            
+            Device.sharedCurrentDevice = nil
+            Device.deleteAll(context: .existing(context))
+        }
+        
+        lastFetchedRecordTimestamp = 0
+        Preferences.Sync.lastFetchTimestamp.reset()
+        lastFetchWasTrimmed = false
+        syncReadyLock = false
+        isSyncFullyInitialized = (false, false, false, false, false, false, false, false)
+        
+        fetchTimer?.invalidate()
+        fetchTimer = nil
+        
+        KeychainWrapper.standard.removeObject(forKey: Preferences.Sync.seedName.key)
+        // If a user stays on any of Sync screens while another device removes this device
+        // we have to dismiss the Sync view controller.
+        NotificationCenter.default.post(name: Sync.Notifications.didLeaveSyncGroup, object: nil)
     }
     
     func addFetchedHandler(_ handler: @escaping () -> Void) {
@@ -219,8 +251,7 @@ public class Sync: JSInjector {
             // TODO: Move syncSeed validation here, remove elsewhere
             
             if isInSyncGroup && value != nil {
-                // Error, cannot replace sync seed with another seed
-                //  must set syncSeed to nil prior to replacing it
+                log.error("Error, cannot replace sync seed with another seed must set syncSeed to nil prior to replacing it")
                 return
             }
             
@@ -229,29 +260,6 @@ public class Sync: JSInjector {
                 Preferences.Sync.seedName.value = true
                 return
             }
-            
-            // Leave group:
-            
-            // Clean up group specific items
-            // TODO: Update all records with originalSyncSeed
-            
-            if let device = Device.currentDevice() {
-                self.sendSyncRecords(action: .delete, records: [device])
-            }
-            
-            Device.deleteAll()
-            
-            lastFetchedRecordTimestamp = 0
-            Preferences.Sync.lastFetchTimestamp.reset()
-            
-            lastFetchWasTrimmed = false
-            syncReadyLock = false
-            isSyncFullyInitialized = (false, false, false, false, false, false, false, false)
-            
-            fetchTimer?.invalidate()
-            fetchTimer = nil
-            
-            KeychainWrapper.standard.removeObject(forKey: seedName)
         }
     }
     
@@ -298,14 +306,17 @@ public class Sync: JSInjector {
                 DataController.save(context: Device.currentDevice()?.managedObjectContext)
             }
             
-            NotificationCenter.default.post(name: Notification.Name(rawValue: NotificationSyncReady), object: nil)
+            NotificationCenter.default.post(name: Sync.Notifications.syncReady, object: nil)
             
             func startFetching() {
-                // Perform first fetch manually
-                self.fetchWrapper()
-                
-                // Fetch timer to run on regular basis
-                fetchTimer = Timer.scheduledTimer(timeInterval: 30.0, target: self, selector: #selector(Sync.fetchWrapper), userInfo: nil, repeats: true)
+                // Assigning the fetch timer must run on main thread.
+                DispatchQueue.main.async {
+                    // Perform first fetch manually
+                    self.fetchWrapper()
+                    
+                    // Fetch timer to run on regular basis
+                    self.fetchTimer = Timer.scheduledTimer(timeInterval: 30.0, target: self, selector: #selector(Sync.fetchWrapper), userInfo: nil, repeats: true)
+                }
             }
             
             // Just throw by itself, does not need to recover or retry due to lack of importance
@@ -315,13 +326,12 @@ public class Sync: JSInjector {
             if lastSyncTimestamp == 0 {
                 // Sync local bookmarks, then proceed with fetching
                 // Pull all local bookmarks and update their order with newly aquired device id and base sync order.
-                let context = DataController.newBackgroundContext()
-                
-                if let updatedBookmarks = bookmarksWithUpdatedOrder(context: context) {
-                    DataController.save(context: context)
-                    
-                    sendSyncRecords(action: .create, records: updatedBookmarks) { _ in
-                        startFetching()
+                DataController.perform { context in
+                    if let updatedBookmarks = self.bookmarksWithUpdatedOrder(context: context) {
+                        
+                        self.sendSyncRecords(action: .create, records: updatedBookmarks, context: context) { _ in
+                            startFetching()
+                        }
                     }
                 }
                 
@@ -333,7 +343,7 @@ public class Sync: JSInjector {
     }
     
     fileprivate func bookmarksWithUpdatedOrder(context: NSManagedObjectContext) -> [Bookmark]? {
-        guard let deviceId = Device.currentDevice()?.deviceId?.first else { return [] }
+        guard let deviceId = Device.currentDevice(context: context)?.deviceId?.first else { return [] }
         let getBaseBookmarksOrderFunction = jsContext?.objectForKeyedSubscript("getBaseBookmarksOrder")
         
         guard let baseOrder =
@@ -358,7 +368,9 @@ public class Sync: JSInjector {
 // MARK: Native-initiated Message category
 extension Sync {
     // TODO: Rename
-    func sendSyncRecords<T: Syncable>(action: SyncActions, records: [T], completion: ((Error?) -> Void)? = nil) {
+    func sendSyncRecords<T: Syncable>(action: SyncActions, records: [T],
+                                      context: NSManagedObjectContext = DataController.viewContext,
+                                      completion: ((Error?) -> Void)? = nil) {
         
         // Consider protecting against (isSynced && .create)
         
@@ -380,11 +392,11 @@ extension Sync {
             return
         }
         
+        // TODO: DeviceId should be sitting on each object already, use that
+        let syncRecords = records.map { $0.asDictionary(deviceId:
+            Device.currentDevice(context: context)?.deviceId, action: action.rawValue) }
+        
         executeBlockOnReady() {
-            
-            // TODO: DeviceId should be sitting on each object already, use that
-            let syncRecords = records.map { $0.asDictionary(deviceId: Device.currentDevice()?.deviceId, action: action.rawValue) }
-            
             guard let json = JSONSerialization.jsObject(withNative: syncRecords, escaped: false) else {
                 // Huge error
                 return
@@ -393,14 +405,17 @@ extension Sync {
             /* browser -> webview, sends this to the webview with the data that needs to be synced to the sync server.
              @param {string} categoryName, @param {Array.<Object>} records */
             let evaluate = "callbackList['send-sync-records'](null, '\(recordType.rawValue)',\(json))"
-            self.webView.evaluateJavaScript(evaluate,
-                                            completionHandler: { (result, error) in
-                                                if let error = error {
-                                                    print(error)
-                                                }
-                                                
-                                                completion?(error)
-            })
+            DispatchQueue.main.async {
+                self.webView.evaluateJavaScript(evaluate,
+                                                completionHandler: { (result, error) in
+                                                    if let error = error {
+                                                        log.error(error)
+                                                    }
+                                                    
+                                                    completion?(error)
+                })
+            }
+            
         }
     }
     
@@ -416,6 +431,10 @@ extension Sync {
                 //                                        print(error)
                 //                                    }
         })
+        
+        #if NO_SYNC
+        leaveSyncGroup()
+        #endif
     }
     
     /// Makes call to sync to fetch new records, instead of just returning records, sync sends `get-existing-objects` message
@@ -431,6 +450,7 @@ extension Sync {
                                             completionHandler: { (result, error) in
                                                 completion?(error)
             })
+            
         }
     }
     
@@ -448,53 +468,42 @@ extension Sync {
             fetchedRecords = fetchedRecords.sorted { device1, device2 in
                 device1.syncTimestamp ?? -1 > device2.syncTimestamp ?? -1 }.unique { $0.objectId ?? [] == $1.objectId ?? [] }
             
-        } else if recordType == .bookmark {
-            // Bookmarks are sorted to have the oldest bookmark to come in first, so it can be added before it's children.
-            fetchedRecords = fetchedRecords.sorted(by: {
-                let firstTimestamp = $0.syncTimestamp ?? 0
-                let secondTimestamp = $1.syncTimestamp ?? 0
-                
-                return firstTimestamp < secondTimestamp
-            })
         }
         
-        let context = DataController.newBackgroundContext()
-        for fetchedRoot in fetchedRecords {
-            
-            guard
-                let fetchedId = fetchedRoot.objectId
-                else { return }
-            
-            let clientRecord = recordType.coredataModelType?.get(syncUUIDs: [fetchedId], context: context)?.first as? Syncable
-            
-            var action = SyncActions(rawValue: fetchedRoot.action ?? -1)
-            if action == SyncActions.delete {
-                clientRecord?.remove(sendToSync: false)
-            } else if action == SyncActions.create {
+        DataController.perform { context in
+            for fetchedRoot in fetchedRecords {
                 
-                if clientRecord != nil {
-                    // This can happen pretty often, especially for records that don't use diffs (e.g. prefs>devices)
-                    // They always return a create command, even if they already "exist", since there is no real 'resolving'
-                    //  Hence check below to prevent duplication
+                guard let fetchedId = fetchedRoot.objectId else { return }
+                
+                let clientRecord = recordType.coredataModelType?.get(syncUUIDs: [fetchedId], context: context)?.first as? Syncable
+                
+                var action = SyncActions(rawValue: fetchedRoot.action ?? -1)
+                if action == SyncActions.delete {
+                    clientRecord?.deleteResolvedRecord(save: false, context: context)
+                } else if action == SyncActions.create {
+                    
+                    if clientRecord != nil {
+                        // This can happen pretty often, especially for records that don't use diffs (e.g. prefs>devices)
+                        // They always return a create command, even if they already "exist", since there is no real 'resolving'
+                        //  Hence check below to prevent duplication
+                    }
+                    
+                    // TODO: Needs favicon
+                    if clientRecord == nil {
+                        _ = recordType.coredataModelType?.createResolvedRecord(rootObject: fetchedRoot, save: false, context: .existing(context))
+                    } else {
+                        // TODO: use Switch with `fallthrough`
+                        action = .update
+                    }
                 }
                 
-                // TODO: Needs favicon
-                if clientRecord == nil {
-                    _ = recordType.coredataModelType?.add(rootObject: fetchedRoot, save: false, sendToSync: false, context: context)
-                } else {
-                    // TODO: use Switch with `fallthrough`
-                    action = .update
+                // Handled outside of else block since .create, can modify to an .update
+                if action == .update {
+                    clientRecord?.updateResolvedRecord(fetchedRoot, context: .existing(context))
                 }
-            }
-            
-            // Handled outside of else block since .create, can modify to an .update
-            if action == .update {
-                clientRecord?.update(syncRecord: fetchedRoot)
             }
         }
-        
-        DataController.save(context: context)
-        print("\(fetchedRecords.count) \(recordType.rawValue) processed")
+        log.debug("\(fetchedRecords.count) \(recordType.rawValue) processed")
         
         // Make generic when other record types are supported
         if recordType != .bookmark {
@@ -521,15 +530,15 @@ extension Sync {
     }
     
     func deleteSyncUser(_ data: [String: AnyObject]) {
-        print("not implemented: deleteSyncUser() \(data)")
+        log.warning("not implemented: deleteSyncUser() \(data)")
     }
     
     func deleteSyncCategory(_ data: [String: AnyObject]) {
-        print("not implemented: deleteSyncCategory() \(data)")
+        log.warning("not implemented: deleteSyncCategory() \(data)")
     }
     
     func deleteSyncSiteSettings(_ data: [String: AnyObject]) {
-        print("not implemented: delete sync site settings \(data)")
+        log.warning("not implemented: delete sync site settings \(data)")
     }
     
 }
@@ -544,45 +553,46 @@ extension Sync {
         guard let fetchedRecords = recordType.fetchedModelType?.syncRecords(recordJSON) else { return }
         
         let ids = fetchedRecords.map { $0.objectId }.compactMap { $0 }
-        let context = DataController.newBackgroundContext()
         
         var localbookmarks: [Bookmark]?
         
-        context.performAndWait {
+        DataController.perform { context in
             localbookmarks = recordType.coredataModelType?.get(syncUUIDs: ids, context: context) as? [Bookmark]
-        }
         
-        var matchedBookmarks = [[Any]]()
-        let deviceId = Device.currentDevice()?.deviceId
-        
-        for fetchedBM in fetchedRecords {
-            var localBM: Any = "null"
-            
-            if let found = localbookmarks?.find({ $0.syncUUID != nil && $0.syncUUID == fetchedBM.objectId }) {
-                localBM = found.asDictionary(deviceId: deviceId, action: fetchedBM.action)
+	        var matchedBookmarks = [[Any]]()
+	        let deviceId = Device.currentDevice(context: context)?.deviceId
+	        
+	        for fetchedBM in fetchedRecords {
+	            var localBM: Any = "null"
+	            
+	            if let found = localbookmarks?.find({ $0.syncUUID != nil && $0.syncUUID == fetchedBM.objectId }) {
+	                localBM = found.asDictionary(deviceId: deviceId, action: fetchedBM.action)
+	            }
+	            
+	            matchedBookmarks.append([fetchedBM.dictionaryRepresentation(), localBM])
+	        }
+	        
+	        /* Top level keys: "bookmark", "action","objectId", "objectData:bookmark","deviceId" */
+	        
+	        // TODO: Check if parsing not required
+	        guard let serializedData = JSONSerialization.jsObject(withNative: matchedBookmarks as AnyObject, escaped: false) else {
+	            log.error("Critical error: could not serialize data for resolve-sync-records")
+	            return
+	        }
+	        
+	        // Only currently support bookmarks, this data will be abstracted (see variable definition note)
+	        if recordType == .bookmark {
+	            // Store the last record's timestamp, to know what timestamp to pass in next time if this one does not fail
+	            self.lastFetchedRecordTimestamp = data?.lastFetchedTimestamp
+	            log.info("sync fetched last timestamp \(self.lastFetchedRecordTimestamp ?? 0)")
+	            self.lastFetchWasTrimmed = data?.isTruncated ?? false
+	        }
+	        
+            DispatchQueue.main.async {
+                self.webView.evaluateJavaScript("callbackList['resolve-sync-records'](null, '\(recordType.rawValue)', \(serializedData))",
+                    completionHandler: { (result, error) in })
             }
-            
-            matchedBookmarks.append([fetchedBM.dictionaryRepresentation(), localBM])
         }
-        
-        /* Top level keys: "bookmark", "action","objectId", "objectData:bookmark","deviceId" */
-        
-        // TODO: Check if parsing not required
-        guard let serializedData = JSONSerialization.jsObject(withNative: matchedBookmarks as AnyObject, escaped: false) else {
-            log.error("Critical error: could not serialize data for resolve-sync-records")
-            return
-        }
-        
-        // Only currently support bookmarks, this data will be abstracted (see variable definition note)
-        if recordType == .bookmark {
-            // Store the last record's timestamp, to know what timestamp to pass in next time if this one does not fail
-            self.lastFetchedRecordTimestamp = data?.lastFetchedTimestamp
-            log.info("sync fetched last timestamp \(self.lastFetchedRecordTimestamp ?? 0)")
-            self.lastFetchWasTrimmed = data?.isTruncated ?? false
-        }
-        
-        self.webView.evaluateJavaScript("callbackList['resolve-sync-records'](null, '\(recordType.rawValue)', \(serializedData))",
-            completionHandler: { (result, error) in })
     }
     
     // Only called when the server has info for client to save
@@ -601,7 +611,7 @@ extension Sync {
             
         } else if syncSeed == nil {
             // Failure
-            print("Seed expected.")
+            log.error("Seed expected.")
         }
         
         // Device Id
@@ -610,7 +620,7 @@ extension Sync {
             Device.currentDevice()?.deviceId = deviceArray.map { $0.intValue }
             DataController.save(context: Device.currentDevice()?.managedObjectContext)
         } else if Device.currentDevice()?.deviceId == nil {
-            print("Device Id expected!")
+            log.error("Device Id expected!")
         }
         
     }
@@ -626,7 +636,16 @@ extension Sync {
         let next = nextOrder ?? ""
         
         let getBookmarkOrderFunction = jsContext?.objectForKeyedSubscript("getBookmarkOrder")
-        return getBookmarkOrderFunction?.call(withArguments: [prev, next]).toString()
+        
+        guard let value = getBookmarkOrderFunction?.call(withArguments: [prev, next]).toString() else {
+            return nil
+        }
+        
+        if Bookmark.isSyncOrderValid(value) {
+            return value
+        }
+        
+        return nil
     }
 }
 
@@ -635,7 +654,7 @@ extension Sync: WKScriptMessageHandler {
         
         // JS execution must be on main thread
         
-        print("😎 \(message.name) \(message.body)")
+        log.debug("😎 \(message.name) \(message.body)")
         
         let syncResponse = SyncResponse(object: message.body as? String ?? "")
         guard let messageName = syncResponse.message else {
@@ -664,7 +683,7 @@ extension Sync: WKScriptMessageHandler {
             self.resolvedSyncRecords(syncResponse)
         case "sync-debug":
             let data = JSON(parseJSON: message.body as? String ?? "")
-            print("---- Sync Debug: \(data)")
+            log.debug("---- Sync Debug: \(data)")
         case "sync-ready":
             self.isSyncFullyInitialized.syncReady = true
         case "fetch-sync-records":
@@ -684,7 +703,7 @@ extension Sync: WKScriptMessageHandler {
         case "sync-setup-error":
             self.syncSetupError()
         default:
-            print("\(messageName) not handled yet")
+            log.debug("\(messageName) not handled yet")
         }
         
         self.checkIsSyncReady()
