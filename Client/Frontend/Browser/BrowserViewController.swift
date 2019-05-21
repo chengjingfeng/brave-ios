@@ -2166,7 +2166,9 @@ extension BrowserViewController: WKUIDelegate {
     func handleAlert<T: JSAlertInfo>(webView: WKWebView, alert: inout T, completionHandler: @escaping () -> Void) {
         guard let promptingTab = tabManager[webView], !promptingTab.blockAllAlerts else {
             tabManager[webView]?.cancelQueuedAlerts()
-            completionHandler()
+            webView.evaluateJavaScript("window.alert = window.confirm = window.prompt = function(e) {}") { _, _ in
+                completionHandler()
+            }
             return
         }
         promptingTab.alertShownCount += 1
