@@ -63,12 +63,19 @@ class TPStatsBlocklistChecker {
             return deferred
         }
         
+        // Getting this domain and current tab urls before going into asynchronous closure
+        // to avoid threading problems(#1094, #1096)
+        assertIsMainThread("Getting enabled blocklists should happen on main thread")
+        let domainBlockLists = BlocklistName.blocklists(forDomain: domain).on
+        
+        guard let delegate = UIApplication.shared.delegate as? AppDelegate else {
+            deferred.fill(nil)
+            return deferred
+        }
+        let currentTabUrl = delegate.browserViewController.tabManager.selectedTab?.url
+        
         DispatchQueue.global().async {
-            var enabledLists = Set<BlocklistName>()
-            
-            domain.managedObjectContext?.performAndWait {
-                enabledLists = BlocklistName.blocklists(forDomain: domain).on
-            }
+            let enabledLists = domainBlockLists
             
             if let resourceType = resourceType {
                 switch resourceType {
@@ -84,7 +91,8 @@ class TPStatsBlocklistChecker {
             
             let isAdOrTrackerListEnabled = enabledLists.contains(.ad) || enabledLists.contains(.tracker)
             
-            if isAdOrTrackerListEnabled && AdBlockStats.shared.shouldBlock(request) {
+            if isAdOrTrackerListEnabled && AdBlockStats.shared.shouldBlock(request,
+                                                                           currentTabUrl: currentTabUrl) {
                 deferred.fill(BlocklistName.ad)
                 return
             }
