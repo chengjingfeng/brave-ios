@@ -4,8 +4,8 @@
 
 import UIKit
 
-extension String {
-    public func escape() -> String? {
+public extension String {
+    func escape() -> String? {
         // We can't guaruntee that strings have a valid string encoding, as this is an entry point for tainted data,
         // we should be very careful about forcefully dereferencing optional types.
         // https://stackoverflow.com/questions/33558933/why-is-the-return-value-of-string-addingpercentencoding-optional#33558934
@@ -14,7 +14,7 @@ extension String {
         return self.addingPercentEncoding(withAllowedCharacters: allowedEscapes)
     }
 
-    public func unescape() -> String? {
+    func unescape() -> String? {
         return self.removingPercentEncoding
     }
 
@@ -28,7 +28,7 @@ extension String {
 
     :returns: A String with `maxLength` characters or less
     */
-    public func ellipsize(maxLength: Int) -> String {
+    func ellipsize(maxLength: Int) -> String {
         if (maxLength >= 2) && (self.count > maxLength) {
             let index1 = self.index(self.startIndex, offsetBy: (maxLength + 1) / 2) // `+ 1` has the same effect as an int ceil
             let index2 = self.index(self.endIndex, offsetBy: maxLength / -2)
@@ -92,7 +92,7 @@ extension String {
         return regex.stringByReplacingMatches(in: self, options: [], range: NSRange(location: 0, length: self.count), withTemplate: with)
     }
     
-    public func separatedBy(_ string: String) -> [String] {
+    func separatedBy(_ string: String) -> [String] {
         let cleaned = self.replacingOccurrences(of: "\n", with: " ")
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: string)
     }
@@ -105,7 +105,7 @@ extension String {
         // NSMutableAttributedString still uses NSRange, a conversion from Swift's range is required.
         let nsRangeOfBoldedText = NSRange(rangeOfBoldedText, in: self)
         // Make sure we use the same font size for the bolded text.
-        let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: boldTextSize)]
+        let attributes: [NSAttributedStringKey: Any] = [.font: UIFont.boldSystemFont(ofSize: boldTextSize)]
         addWordsDescriptionBolded.setAttributes(attributes, range: nsRangeOfBoldedText)
         return addWordsDescriptionBolded
     }

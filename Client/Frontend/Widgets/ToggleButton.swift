@@ -52,7 +52,7 @@ class ToggleButton: UIButton {
             let endPath = CGMutablePath()
             endPath.addEllipse(in: endFrame)
 
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animation.timingFunction = CAMediaTimingFunction(name: kCAMediaTimingFunctionEaseOut)
             animation.values = [
                 startPath,
                 largerPath,
@@ -64,12 +64,12 @@ class ToggleButton: UIButton {
         } else {
             let animation = CABasicAnimation(keyPath: "path")
             animation.duration = WidgetUX.HideDuration
-            animation.fillMode = .forwards
+            animation.fillMode = kCAFillModeForwards
 
             let fromPath = CGMutablePath()
             fromPath.addEllipse(in: endFrame)
             animation.fromValue = fromPath
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation.timingFunction = CAMediaTimingFunction(name: kCAMediaTimingFunctionEaseInEaseOut)
 
             let toPath = CGMutablePath()
             toPath.addEllipse(in: CGRect(origin: self.maskShapeLayer.bounds.center, size: .zero))

@@ -964,7 +964,7 @@ extension SQLiteBookmarks {
 
 // MARK: - Applying merge operations.
 
-extension SQLiteBookmarkBufferStorage {
+public extension SQLiteBookmarkBufferStorage {
     public func applyBufferCompletionOp(_ op: BufferCompletionOp, itemSources: ItemSources) -> Success {
         log.debug("Marking buffer rows as applied.")
         if op.isNoOp {

@@ -82,7 +82,7 @@ class LoginListViewController: UIViewController {
 
         let notificationCenter = NotificationCenter.default
         notificationCenter.addObserver(self, selector: #selector(remoteLoginsDidChange), name: .DataRemoteLoginChangesWereApplied, object: nil)
-        notificationCenter.addObserver(self, selector: #selector(dismissAlertController), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        notificationCenter.addObserver(self, selector: #selector(dismissAlertController), name: .UIApplicationDidEnterBackground, object: nil)
 
         tableView.contentInsetAdjustmentBehavior = .never
 
@@ -293,7 +293,7 @@ extension LoginListViewController: UITableViewDelegate {
         return LoginListUX.RowHeight
     }
 
-    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
+    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCellEditingStyle {
         return .none
     }
 
@@ -605,7 +605,7 @@ fileprivate class LoadingLoginsView: UIView {
     }
 
     lazy var indicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .gray)
+        let indicator = UIActivityIndicatorView(activityIndicatorStyle: .gray)
         indicator.hidesWhenStopped = false
         return indicator
     }()

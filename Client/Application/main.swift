@@ -12,4 +12,5 @@ if AppConstants.IsRunningTest {
     appDelegate = AppDelegate.self
 }
 
-_ = UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, NSStringFromClass(UIApplication.self), NSStringFromClass(appDelegate))
+private let pointer = UnsafeMutableRawPointer(CommandLine.unsafeArgv).bindMemory(to: UnsafeMutablePointer<Int8>.self, capacity: Int(CommandLine.argc))
+_ = UIApplicationMain(CommandLine.argc, pointer, NSStringFromClass(UIApplication.self), NSStringFromClass(appDelegate))

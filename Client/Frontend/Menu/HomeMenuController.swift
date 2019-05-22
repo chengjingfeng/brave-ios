@@ -150,7 +150,7 @@ class HomeMenuController: UIViewController, PopoverContentComponent {
     
     bookmarksNavController.view.isHidden = false
     
-    view.bringSubviewToFront(topButtonsView)
+    view.bringSubview(toFront: topButtonsView)
     
     setupConstraints()
     updateBookmarkStatus()

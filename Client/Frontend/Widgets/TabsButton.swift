@@ -84,7 +84,7 @@ class TabsButton: UIButton {
         insideButton.addSubview(countLabel)
         addSubview(insideButton)
         isAccessibilityElement = true
-        accessibilityTraits.insert(.button) 
+        accessibilityTraits |= UIAccessibilityTraitButton
         self.accessibilityLabel = Strings.Show_Tabs
     }
 

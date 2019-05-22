@@ -17,7 +17,7 @@ class SearchEnginePicker: UITableViewController {
         self.type = type
     }
     
-    override init(style: UITableView.Style) {
+    override init(style: UITableViewStyle) {
         super.init(style: style)
     }
     

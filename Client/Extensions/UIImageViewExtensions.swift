@@ -7,7 +7,7 @@ import Storage
 import Shared
 import Data
 
-extension UIImageView {
+public extension UIImageView {
 
     public func setIcon(_ icon: Favicon?, forURL url: URL?, scaledDefaultIconSize: CGSize? = nil, completed completionBlock: ((UIColor, URL?) -> Void)? = nil) {
         if let url = url, icon == nil {

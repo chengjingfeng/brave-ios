@@ -4,7 +4,7 @@
 
 import Foundation
 
-extension Data {
+public extension Data {
     public mutating func appendBytes(fromData data: Data) {
         var bytes = [UInt8](repeating: 0, count: data.count)
         data.copyBytes(to: &bytes, count: data.count)

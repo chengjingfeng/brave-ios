@@ -17,10 +17,10 @@ extension TabTrayController {
             UIKeyCommand(input: "\\", modifierFlags: [.command, .shift], action: #selector(didEnterTabKeyCommand)),
             UIKeyCommand(input: "\t", modifierFlags: [.command, .alternate], action: #selector(didEnterTabKeyCommand)),
             UIKeyCommand(input: "t", modifierFlags: .command, action: #selector(didOpenNewTabKeyCommand), discoverabilityTitle: Strings.OpenNewTabFromTabTrayKeyCodeTitle),
-            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
-            UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
-            UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputLeftArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputRightArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputDownArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputUpArrow, modifierFlags: [], action: #selector(didChangeSelectedTabKeyCommand(sender:))),
         ]
     }
 
@@ -51,13 +51,13 @@ extension TabTrayController {
         let step: Int
         guard let input = sender.input else { return }
         switch input {
-        case UIKeyCommand.inputLeftArrow:
+        case UIKeyInputLeftArrow:
             step = -1
-        case UIKeyCommand.inputRightArrow:
+        case UIKeyInputRightArrow:
             step = 1
-        case UIKeyCommand.inputUpArrow:
+        case UIKeyInputUpArrow:
             step = -numberOfColumns
-        case UIKeyCommand.inputDownArrow:
+        case UIKeyInputDownArrow:
             step = numberOfColumns
         default:
             step = 0

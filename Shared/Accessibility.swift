@@ -35,7 +35,7 @@ extension AccessibleAction { // UIAlertAction
         }
     }
 
-    public func alertAction(style: UIAlertAction.Style) -> UIAlertAction {
+    public func alertAction(style: UIAlertActionStyle) -> UIAlertAction {
         return UIAlertAction(title: name, style: style, handler: alertActionHandler)
     }
 }

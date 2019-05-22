@@ -20,7 +20,7 @@ class ShareToBraveViewController: SLComposeServiceViewController {
         
         // Reduce all input items down to a single list of item providers
         let attachments: [NSItemProvider] = inputItems
-            .compactMap { $0.attachments }
+            .compactMap { $0.attachments as? [NSItemProvider] }
             .flatMap { $0 }
         
         // Look for the first URL the host application is sharing.
@@ -77,7 +77,7 @@ class ShareToBraveViewController: SLComposeServiceViewController {
         super.viewDidAppear(animated)
     }
     
-    override func willMove(toParent parent: UIViewController?) {
+    override func willMove(toParentViewController parent: UIViewController?) {
         view.alpha = 0
     }
 }

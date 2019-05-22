@@ -83,9 +83,9 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
 
     override var keyCommands: [UIKeyCommand]? {
         return [
-            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
-            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputLeftArrow, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputRightArrow, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
+            UIKeyCommand(input: UIKeyInputEscape, modifierFlags: [], action: #selector(self.handleKeyCommand(sender:))),
         ]
     }
 
@@ -94,7 +94,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
             return
         }
         switch input {
-        case UIKeyCommand.inputLeftArrow:
+        case UIKeyInputLeftArrow:
             if isSelectionActive {
                 applyCompletion()
                 
@@ -111,7 +111,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
                 
                 selectedTextRange = textRange(from: cursorPosition, to: cursorPosition)
             }
-        case UIKeyCommand.inputRightArrow:
+        case UIKeyInputRightArrow:
             if isSelectionActive {
                 applyCompletion()
                 
@@ -128,7 +128,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
 
                 selectedTextRange = textRange(from: cursorPosition, to: cursorPosition)
             }
-        case UIKeyCommand.inputEscape:
+        case UIKeyInputEscape:
             autocompleteDelegate?.autocompleteTextFieldDidCancel(self)
         default:
             break
@@ -188,7 +188,7 @@ class AutocompleteTextField: UITextField, UITextFieldDelegate {
 
         let suggestionText = String(suggestion.suffix(from: suggestion.index(suggestion.startIndex, offsetBy: normalized.count)))
         let autocompleteText = NSMutableAttributedString(string: suggestionText)
-        autocompleteText.addAttribute(NSAttributedString.Key.backgroundColor, value: highlightColor, range: NSRange(location: 0, length: suggestionText.count))
+        autocompleteText.addAttribute(NSAttributedStringKey.backgroundColor, value: highlightColor, range: NSRange(location: 0, length: suggestionText.count))
         autocompleteTextLabel?.removeFromSuperview() // should be nil. But just in case
         autocompleteTextLabel = createAutocompleteLabelWith(autocompleteText)
         if let l = autocompleteTextLabel {
